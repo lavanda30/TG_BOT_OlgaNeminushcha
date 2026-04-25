@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП'}
+EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП', 'GRANDDESIGN', 'HATEM', 'МИ З УКРАЇНИ'}
 PAGE_SIZE = 8
 UAH_RATE = 45   # курс для калькулятора
 SEW_PER_M = 250  # ціна пошиву за метр, грн
@@ -94,15 +94,12 @@ def get_usd_price(row: dict) -> float | None:
 
 
 def calc_sewing(price_usd: float, meters: float) -> float:
-    """Формула: метри × (ціна$ × 90 + 250)"""
     return meters * (price_usd * UAH_RATE * 2 + SEW_PER_M)
 
 
 def build_calc_message(query: str, meters: float, results: list) -> str:
-    """Будує повідомлення з розрахунком для знайдених тканин (до 5)."""
+    """Будує повідомлення з розрахунком для знайдених тканин."""
     msg = (
-        f"🧮 *Калькулятор пошиву*\n"
-        f"Запит: `{query}` · Метраж: *{meters} м*\n"
         f"Формула: метри × (ціна$ × {UAH_RATE} × 2 + {SEW_PER_M} грн)\n\n"
     )
 
@@ -151,9 +148,9 @@ SUPPLIER_EMOJI = {
     'PRONTO': '🚀', 'NEVALYA': '🌟', 'МД СИМЬЕ': '🏷️',
     'МІРТЕКС': '🧵', 'INSAIT': '💡', 'ПРАЙС 01.10.2025': '📋',
     'ПіК': '📌', 'DECORAL': '🎀', 'MEGARA': '🏺',
-    'UMUT': '🌙', 'UMUT (SPERANTA)': '🌙', 'HAS BOR': '🏗️',
+    '12.05.2025': '🌙', 'UMUT (SPERANTA)': '🌙', 'HAS BOR': '🏗️',
     'NOPE': '🔷', 'MEVLANA': '🕌', 'ELIT HOME': '🏅',
-    'SAM-TEX RED 3': '🔴',
+    'SAM-TEX HOME': '🔴',
 }
 DEFAULT_EMOJI = '🧵'
 
