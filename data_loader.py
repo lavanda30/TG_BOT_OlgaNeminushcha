@@ -12,13 +12,9 @@ import re
 import io
 import logging
 import urllib.request
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-# ============================================================
-# Назви стовпців (відповідають all_products.xlsx)
-# ============================================================
 COLS = [
     'supplier', 'sku', 'name', 'category', 'fabric',
     'color', 'width_cm', 'height_cm',
@@ -26,11 +22,10 @@ COLS = [
     'currency', 'unit', 'in_stock', 'collection', 'contacts'
 ]
 
-UAH_RATE = 41  # курс для відображення грн (якщо ціна в USD)
+UAH_RATE = 41
 
 
 def _load_workbook_bytes(data: bytes):
-    """Завантажує openpyxl Workbook з bytes."""
     try:
         from openpyxl import load_workbook
         return load_workbook(io.BytesIO(data), data_only=True)
@@ -40,13 +35,17 @@ def _load_workbook_bytes(data: bytes):
 
 
 def _fetch_excel() -> bytes:
-    """Читає XLSX — спочатку з URL, потім локально."""
     url = os.environ.get("EXCEL_URL", "").strip()
     path = os.environ.get("EXCEL_PATH", "").strip()
 
     if url:
+        # Автоматично конвертуємо GitHub blob → raw
+        if "github.com" in url and "/blob/" in url:
+            url = url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+            logger.info(f"Converted to raw GitHub URL: {url}")
         logger.info(f"Downloading Excel from: {url}")
-        with urllib.request.urlopen(url, timeout=30) as r:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as r:
             return r.read()
 
     if path:
@@ -54,7 +53,6 @@ def _fetch_excel() -> bytes:
         with open(path, "rb") as f:
             return f.read()
 
-    # fallback — шукаємо all_products.xlsx поруч
     for candidate in [
         os.path.join(os.path.dirname(__file__), "..", "all_products.xlsx"),
         os.path.join(os.path.dirname(__file__), "all_products.xlsx"),
@@ -72,13 +70,6 @@ def _fetch_excel() -> bytes:
 
 
 def load_all(allowed_suppliers: list | None = None) -> dict:
-    """
-    Завантажує all_products.xlsx і повертає:
-        { supplier: [ {col: val, ...}, ... ] }
-
-    allowed_suppliers — список постачальників для фільтрації (None = усі).
-    Рядки з 'КОНТАКТИ' у sku — пропускаються (це рядки контактів).
-    """
     data = _fetch_excel()
     wb = _load_workbook_bytes(data)
 
@@ -89,7 +80,6 @@ def load_all(allowed_suppliers: list | None = None) -> dict:
             if not row or not row[0]:
                 continue
 
-            # Будуємо dict зі значеннями (COLS можуть бути довші ніж рядок)
             d = {}
             for i, col in enumerate(COLS):
                 d[col] = row[i] if i < len(row) else None
@@ -98,12 +88,10 @@ def load_all(allowed_suppliers: list | None = None) -> dict:
             if not supplier:
                 continue
 
-            # Пропускаємо рядки контактів
             sku = str(d['sku']).strip() if d['sku'] else ''
             if 'КОНТАКТИ' in sku.upper():
                 continue
 
-            # Фільтрація по постачальнику
             if allowed_suppliers is not None:
                 if supplier not in allowed_suppliers:
                     continue
@@ -120,10 +108,6 @@ def load_all(allowed_suppliers: list | None = None) -> dict:
 
 
 def fmt_price(row: dict) -> str:
-    """
-    Форматує ціну для відображення в Telegram.
-    price_retail > price — відріз (основна ціна для відображення).
-    """
     currency = str(row.get('currency') or 'USD').strip()
     retail = row.get('price_retail')
     price = row.get('price')
@@ -143,7 +127,6 @@ def fmt_price(row: dict) -> str:
         val = int(main_f) if main_f == int(main_f) else main_f
         return f"*{val}$* · ~{uah}грн"
     else:
-        # грн — показуємо рулон/відріз якщо є обидва
         if price is not None and retail is not None and price != retail:
             try:
                 p = float(price)
@@ -155,7 +138,6 @@ def fmt_price(row: dict) -> str:
 
 
 def get_tag(row: dict) -> str:
-    """Повертає емодзі-тег за статусом."""
     in_stock = str(row.get('in_stock') or '').upper()
     coll = str(row.get('collection') or '').upper()
 
@@ -173,12 +155,10 @@ def get_tag(row: dict) -> str:
 
 
 def get_extra(row: dict) -> str:
-    """Повертає короткий опис тканини для відображення під артикулом."""
     for field in ('fabric', 'category'):
         val = row.get(field)
         if val and str(val).strip() not in ('', '—', 'None'):
             v = str(val).strip()
-            # Обрізаємо дуже довгі рядки
             if len(v) > 60:
                 v = v[:57] + '...'
             return v
@@ -186,5 +166,4 @@ def get_extra(row: dict) -> str:
 
 
 def normalize(s: str) -> str:
-    """Для гнучкого пошуку: прибирає пробіли, тире, слеш."""
     return re.sub(r'[\s\-_/.]', '', str(s)).lower()

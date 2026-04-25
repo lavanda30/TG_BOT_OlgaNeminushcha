@@ -1,10 +1,13 @@
 """
 bot1.py — OlgaNeminushcha_PriceBot
 t.me/OlgaNeminushcha_PriceBot
-Токен: 8310562257:AAGF4d3bc4tje50YLeOJymKDrZbBguC3C3E
 
 Показує ВСІ постачальники з all_products.xlsx,
 КРІМ GRANDDESIGN та ЛАСП (ті — тільки для бота 2).
+
+Змінні середовища (Railway):
+  BOT_TOKEN  — токен бота
+  EXCEL_URL  — raw-посилання на all_products.xlsx
 """
 import os
 import logging
@@ -21,17 +24,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ============================================================
-# Постачальники, які НЕ показує цей бот
-# (вони — виключно для бота 2)
-# ============================================================
 EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП'}
-
 PAGE_SIZE = 8
 
-# ============================================================
-# Кеш даних (оновлюється при /reload)
-# ============================================================
 _data: dict = {}
 
 
@@ -39,7 +34,6 @@ def data() -> dict:
     global _data
     if not _data:
         _data = load_all()
-        # Прибираємо виключені бренди
         for excl in EXCLUDED_SUPPLIERS:
             _data.pop(excl, None)
     return _data
@@ -50,10 +44,6 @@ def reload_data():
     _data = {}
     return data()
 
-
-# ============================================================
-# UI helpers
-# ============================================================
 
 SUPPLIER_EMOJI = {
     'Elizabeth': '👑', 'ADEKO': '🏭', 'LIBERTA': '🎪',
@@ -67,9 +57,8 @@ SUPPLIER_EMOJI = {
     'ПіК': '📌', 'DECORAL': '🎀', 'MEGARA': '🏺',
     'UMUT': '🌙', 'UMUT (SPERANTA)': '🌙', 'HAS BOR': '🏗️',
     'NOPE': '🔷', 'MEVLANA': '🕌', 'ELIT HOME': '🏅',
-    'SAM-TEX RED 3': '🔴', 'SAVAHOME': '🏠',
+    'SAM-TEX RED 3': '🔴',
 }
-
 DEFAULT_EMOJI = '🧵'
 
 
@@ -134,10 +123,6 @@ def build_brand_text(supplier: str, items: list, page: int) -> str:
 
     return text
 
-
-# ============================================================
-# Handlers
-# ============================================================
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     d = data()
@@ -266,17 +251,12 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=kb)
 
 
-# ============================================================
-# Main
-# ============================================================
-
 def main():
-    token = os.environ.get("BOT_TOKEN") or "8310562257:AAGF4d3bc4tje50YLeOJymKDrZbBguC3C3E"
+    token = os.environ.get("BOT_TOKEN")
     if not token:
-        raise ValueError("BOT_TOKEN не встановлено!")
+        raise ValueError("BOT_TOKEN не встановлено! Додайте змінну середовища на Railway.")
 
     logger.info("Bot1 (OlgaNeminushcha_PriceBot) starting...")
-    # Прогріваємо кеш при старті
     try:
         d = data()
         logger.info(f"Loaded {sum(len(v) for v in d.values())} rows, {len(d)} suppliers")
