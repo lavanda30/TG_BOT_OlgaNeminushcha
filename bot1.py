@@ -123,9 +123,7 @@ def build_calc_message(query: str, meters: float, results: list) -> str:
 
         msg += (
             f"🧵 *{supplier}* · `{sku}`{extra_str}\n"
-            f"   Ціна: *{price_usd}$* → *{price_per_m:.0f} грн/м*\n"
-            f"   📐 {meters} м × ({price_usd}$ × 90 + {SEW_PER_M}) "
-            f"= *{total:,.0f} грн*\n\n"
+            f"   Ціна: *{price_usd}$*, *{total:,.0f} грн*\n\n"
         )
 
     if len(results) > 5:
