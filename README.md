@@ -33,7 +33,7 @@ telegram_bot/
 
 ### Варіант А — URL (для Railway/хостингу)
 ```bash
-export EXCEL_URL="https://your-railway-url.up.railway.app/all_products.xlsx"
+export EXCEL_URL="https://github.com/lavanda30/TELEGRAM_OlgaNeminushcha_PriceBot/blob/main/all_products.xlsx"
 ```
 
 ### Варіант Б — локальний файл (для тестування)
@@ -80,13 +80,13 @@ python bot2.py
 | Змінна | Значення |
 |--------|----------|
 | `BOT_TOKEN` | `8310562257:AAGF4d3bc4tje50YLeOJymKDrZbBguC3C3E` |
-| `EXCEL_URL` | URL вашого `all_products.xlsx` |
+| `EXCEL_URL` | https://github.com/lavanda30/TELEGRAM_OlgaNeminushcha_PriceBot/blob/main/all_products.xlsx |
 
 ### Для Бота 2 (окремий сервіс):
 | Змінна | Значення |
 |--------|----------|
 | `BOT2_TOKEN` | токен існуючого бота |
-| `EXCEL_URL` | той самий URL |
+| `EXCEL_URL` | https://github.com/lavanda30/TELEGRAM_OlgaNeminushcha_PriceBot/blob/main/all_products.xlsx |
 
 **Startова команда:**
 - Бот 1: `python bot1.py`
