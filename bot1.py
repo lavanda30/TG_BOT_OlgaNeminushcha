@@ -8,8 +8,15 @@ t.me/OlgaNeminushcha_PriceBot
 Змінні середовища (Railway):
   BOT_TOKEN  — токен бота
   EXCEL_URL  — raw-посилання на all_products.xlsx
+
+Калькулятор пошиву:
+  Формат: <запит тканини> <метри>M  (або m)
+  Наприклад: 1361 4.9M  або  Donna 5m
+  Формула: метри × (ціна$ × 90 + 250)
+  де 90 = курс 45 × коефіцієнт 2, 250 = ціна пошиву за метр (грн)
 """
 import os
+import re
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -26,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП'}
 PAGE_SIZE = 8
+UAH_RATE = 45   # курс для калькулятора
+SEW_PER_M = 250  # ціна пошиву за метр, грн
 
 _data: dict = {}
 
@@ -44,6 +53,93 @@ def reload_data():
     _data = {}
     return data()
 
+
+# ═══════════════════════════════════════════════════════
+# Калькулятор
+# ═══════════════════════════════════════════════════════
+
+# Патерн: число з крапкою або комою, потім M або m
+_METERS_RE = re.compile(r'(\d+[.,]\d+|\d+)\s*[Mm](?:\b|$)')
+
+
+def parse_calc_query(text: str):
+    """
+    Якщо в тексті є шаблон '<число>M', повертає (пошуковий_запит, метри).
+    Інакше повертає (text, None).
+    """
+    m = _METERS_RE.search(text)
+    if not m:
+        return text, None
+    meters_str = m.group(1).replace(',', '.')
+    meters = float(meters_str)
+    # Пошуковий запит — текст без знайденого шматка з метражем
+    query = text[:m.start()].strip() + ' ' + text[m.end():].strip()
+    query = query.strip()
+    return query, meters
+
+
+def get_usd_price(row: dict) -> float | None:
+    """Повертає ціну в доларах або None якщо не USD."""
+    currency = str(row.get('currency') or '').strip().upper()
+    if currency not in ('USD', 'У.Е.', 'U.E.', '$', ''):
+        return None
+    # Беремо price_retail якщо є, інакше price
+    val = row.get('price_retail') or row.get('price')
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def calc_sewing(price_usd: float, meters: float) -> float:
+    """Формула: метри × (ціна$ × 90 + 250)"""
+    return meters * (price_usd * UAH_RATE * 2 + SEW_PER_M)
+
+
+def build_calc_message(query: str, meters: float, results: list) -> str:
+    """Будує повідомлення з розрахунком для знайдених тканин (до 5)."""
+    msg = (
+        f"🧮 *Калькулятор пошиву*\n"
+        f"Запит: `{query}` · Метраж: *{meters} м*\n"
+        f"Формула: метри × (ціна$ × {UAH_RATE} × 2 + {SEW_PER_M} грн)\n\n"
+    )
+
+    shown = results[:5]
+    for supplier, row in shown:
+        sku = str(row.get('sku') or row.get('name') or '?').strip()
+        price_usd = get_usd_price(row)
+
+        if price_usd is None:
+            # Ціна не в доларах — показуємо без розрахунку
+            msg += (
+                f"🧵 *{supplier}* · `{sku}`\n"
+                f"   ⚠️ Ціна не в USD, розрахунок недоступний\n\n"
+            )
+            continue
+
+        total = calc_sewing(price_usd, meters)
+        price_per_m = price_usd * UAH_RATE * 2
+        extra = get_extra(row)
+        extra_str = f" · _{extra}_" if extra else ""
+
+        msg += (
+            f"🧵 *{supplier}* · `{sku}`{extra_str}\n"
+            f"   Ціна: *{price_usd}$* → *{price_per_m:.0f} грн/м*\n"
+            f"   📐 {meters} м × ({price_usd}$ × 90 + {SEW_PER_M}) "
+            f"= *{total:,.0f} грн*\n\n"
+        )
+
+    if len(results) > 5:
+        msg += f"_...ще {len(results)-5} збігів. Уточніть запит._\n"
+
+    return msg
+
+
+# ═══════════════════════════════════════════════════════
+# UI helpers
+# ═══════════════════════════════════════════════════════
 
 SUPPLIER_EMOJI = {
     'Elizabeth': '👑', 'ADEKO': '🏭', 'LIBERTA': '🎪',
@@ -124,13 +220,19 @@ def build_brand_text(supplier: str, items: list, page: int) -> str:
     return text
 
 
+# ═══════════════════════════════════════════════════════
+# Handlers
+# ═══════════════════════════════════════════════════════
+
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     d = data()
     total = sum(len(v) for v in d.values())
     text = (
         "🛍 *Прайс — Штори та Тюль*\n\n"
         f"В базі: *{total} позицій* · *{len(d)} брендів*\n\n"
-        "Оберіть бренд або скористайтесь пошуком:"
+        "Оберіть бренд або скористайтесь пошуком:\n\n"
+        "💡 *Калькулятор пошиву:* введіть артикул і метраж\n"
+        "Наприклад: `1361 4.9M` або `Donna 5m`"
     )
     await update.message.reply_text(
         text, parse_mode="Markdown",
@@ -158,7 +260,8 @@ async def cmd_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             "🔍 Введіть назву або артикул:\n"
-            "Наприклад: `Donna`, `8132`, `блекаут`, `l205`",
+            "Наприклад: `Donna`, `8132`, `блекаут`, `l205`\n\n"
+            "💡 Для калькулятора додайте метраж: `1361 4.9M`",
             parse_mode="Markdown"
         )
 
@@ -193,13 +296,18 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif cmd == "search":
         await q.edit_message_text(
             "🔍 *Введіть назву або артикул* для пошуку:\n\n"
-            "Наприклад: `блекаут`, `Donna`, `8132`, `l205`",
+            "Наприклад: `блекаут`, `Donna`, `8132`, `l205`\n"
+            "💡 З метражем для розрахунку: `1361 4.9M`",
             parse_mode="Markdown"
         )
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.message.text.strip()
+    raw = update.message.text.strip()
+
+    # ── Перевіряємо чи є метраж у запиті ──
+    query, meters = parse_calc_query(raw)
+
     q_lower = query.lower()
     q_norm = normalize(query)
 
@@ -221,6 +329,26 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     seen.add(key)
                     results.append((supplier, row))
 
+    # ── Режим калькулятора ──
+    if meters is not None:
+        if not results:
+            await update.message.reply_text(
+                f"❌ По запиту *{query}* нічого не знайдено\n\n"
+                "💡 Спробуйте інший артикул, наприклад: `1361 4.9M`",
+                parse_mode="Markdown",
+                reply_markup=build_main_keyboard(d)
+            )
+            return
+
+        msg = build_calc_message(query, meters, results)
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔍 Новий пошук", callback_data="search"),
+            InlineKeyboardButton("🏠 Головна", callback_data="main"),
+        ]])
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=kb)
+        return
+
+    # ── Звичайний пошук ──
     if not results:
         await update.message.reply_text(
             f"❌ По запиту *{query}* нічого не знайдено\n\n"
@@ -250,6 +378,10 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ]])
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=kb)
 
+
+# ═══════════════════════════════════════════════════════
+# Main
+# ═══════════════════════════════════════════════════════
 
 def main():
     token = os.environ.get("BOT_TOKEN")
