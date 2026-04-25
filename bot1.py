@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП', 'GRANDDESIGN', 'HATEM', 'МИ З УКРАЇНИ'}
+EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП', 'GRANDDESIGN', 'HATEM', 'МИ З УКРАЇНИ', "ECOBELLA"}
 PAGE_SIZE = 8
 UAH_RATE = 45   # курс для калькулятора
 SEW_PER_M = 250  # ціна пошиву за метр, грн
