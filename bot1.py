@@ -100,7 +100,7 @@ def calc_sewing(price_usd: float, meters: float) -> float:
 def build_calc_message(query: str, meters: float, results: list) -> str:
     """Будує повідомлення з розрахунком для знайдених тканин."""
     msg = (
-        f"Формула: метри × (ціна$ × {UAH_RATE} × 2 + {SEW_PER_M} грн)\n\n"
+        f"💫Салон штор Ольги Неминущої"
     )
 
     shown = results[:5]
