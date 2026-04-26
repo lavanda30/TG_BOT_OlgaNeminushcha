@@ -134,7 +134,7 @@ def format_row(idx: int, supplier: str, row: dict, query: str, meters: float | N
         total     = calc_sewing(price_usd, meters)
         price_str = f"*{price_usd}$* ≈ *{total:,.0f} грн*"
     else:
-        price_uah = round(price_usd * UAH_RATE)
+        price_uah = round(price_usd * UAH_RATE * 2)
         price_str = f"*{price_usd}$* ≈ *{price_uah} грн*"
 
     return f"{num} *{supplier}* · {label} · {price_str}"
