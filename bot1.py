@@ -23,7 +23,7 @@ from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes
 )
-from data_loader import load_all, fmt_price, get_tag, get_extra, normalize
+from data_loader import load_all, fmt_price, get_tag, get_extra, normalize, get_tag
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +35,24 @@ EXCLUDED_SUPPLIERS = {'GRANDDESIGN', 'ЛАСП', 'GRANDDESIGN', 'HATEM', 'МИ �
 PAGE_SIZE = 8
 UAH_RATE = 45   # курс для калькулятора
 SEW_PER_M = 250  # ціна пошиву за метр, грн
+
+# ── Whitelist ──────────────────────────────────────────────────
+# Керується через змінну середовища WHITELIST в Railway.
+# Формат: WHITELIST=111111111,222222222,333333333
+# Адмін завжди має доступ незалежно від змінної.
+ADMIN_ID = 1027792488
+
+def _load_whitelist() -> set[int]:
+    ids = {ADMIN_ID}
+    raw = os.environ.get("WHITELIST", "")
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+    return ids
+
+_whitelist: set[int] = _load_whitelist()
+# ──────────────────────────────────────────────────────────────
 
 _data: dict = {}
 
@@ -54,36 +72,32 @@ def reload_data():
     return data()
 
 
+def is_allowed(user_id: int) -> bool:
+    return user_id in _whitelist
+
+
 # ═══════════════════════════════════════════════════════
 # Калькулятор
 # ═══════════════════════════════════════════════════════
 
-# Патерн: число з крапкою або комою, потім M або m
 _METERS_RE = re.compile(r'(\d+[.,]\d+|\d+)\s*[Mm](?:\b|$)')
 
 
 def parse_calc_query(text: str):
-    """
-    Якщо в тексті є шаблон '<число>M', повертає (пошуковий_запит, метри).
-    Інакше повертає (text, None).
-    """
     m = _METERS_RE.search(text)
     if not m:
         return text, None
     meters_str = m.group(1).replace(',', '.')
     meters = float(meters_str)
-    # Пошуковий запит — текст без знайденого шматка з метражем
     query = text[:m.start()].strip() + ' ' + text[m.end():].strip()
     query = query.strip()
     return query, meters
 
 
 def get_usd_price(row: dict) -> float | None:
-    """Повертає ціну в доларах або None якщо не USD."""
     currency = str(row.get('currency') or '').strip().upper()
     if currency not in ('USD', 'У.Е.', 'U.E.', '$', ''):
         return None
-    # Беремо price_retail якщо є, інакше price
     val = row.get('price_retail') or row.get('price')
     if val is None:
         return None
@@ -98,37 +112,26 @@ def calc_sewing(price_usd: float, meters: float) -> float:
 
 
 def build_calc_message(query: str, meters: float, results: list) -> str:
-    """Будує повідомлення з розрахунком для знайдених тканин."""
-    msg = (
-        f"💫Салон штор Ольги Неминущої"
-    )
-
+    msg = "💫Салон штор Ольги Неминущої\n\n"
     shown = results[:5]
     for supplier, row in shown:
         sku = str(row.get('sku') or row.get('name') or '?').strip()
         price_usd = get_usd_price(row)
-
         if price_usd is None:
-            # Ціна не в доларах — показуємо без розрахунку
             msg += (
                 f"🧵 *{supplier}* · `{sku}`\n"
                 f"   ⚠️ Ціна не в USD, розрахунок недоступний\n\n"
             )
             continue
-
         total = calc_sewing(price_usd, meters)
-        price_per_m = price_usd * UAH_RATE * 2
         extra = get_extra(row)
         extra_str = f" · _{extra}_" if extra else ""
-
         msg += (
             f"🧵 *{supplier}* · `{sku}`{extra_str}\n"
             f"   Ціна: *{price_usd}$*, *{total:,.0f} грн*\n\n"
         )
-
     if len(results) > 5:
         msg += f"_...ще {len(results)-5} збігів. Уточніть запит._\n"
-
     return msg
 
 
@@ -195,10 +198,8 @@ def build_brand_text(supplier: str, items: list, page: int) -> str:
     end = min(start + PAGE_SIZE, len(items))
     total = len(items)
     emoji = supplier_emoji(supplier)
-
     text = f"{emoji} *{supplier}*\n"
     text += f"Показано {start+1}–{end} з {total}\n\n"
-
     for row in items[start:end]:
         tag = get_tag(row)
         sku = str(row.get('sku') or row.get('name') or '?').strip()
@@ -206,12 +207,10 @@ def build_brand_text(supplier: str, items: list, page: int) -> str:
         extra = get_extra(row)
         h = row.get('height_cm')
         height_str = f" · {int(h)}см" if h and str(h).isdigit() else (f" · {h}см" if h else "")
-
         line = f"{tag} `{sku}` — {price_str}{height_str}"
         if extra:
             line += f"\n   _{extra}_"
         text += line + "\n"
-
     return text
 
 
@@ -219,7 +218,19 @@ def build_brand_text(supplier: str, items: list, page: int) -> str:
 # Handlers
 # ═══════════════════════════════════════════════════════
 
+BLOCKED_TEXT = (
+    "🔒 Цей бот працює лише для авторизованих користувачів.\n\n"
+    "Для отримання доступу зверніться до адміністратора."
+)
+
+
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_allowed(user.id):
+        await update.message.reply_text(BLOCKED_TEXT)
+        logger.info(f"Blocked /start from {user.id} @{user.username}")
+        return
+
     d = data()
     total = sum(len(v) for v in d.values())
     text = (
@@ -236,6 +247,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_reload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_user.id):
+        return
     await update.message.reply_text("⏳ Оновлюю дані з Excel...")
     try:
         d = reload_data()
@@ -249,6 +262,9 @@ async def cmd_reload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_user.id):
+        await update.message.reply_text(BLOCKED_TEXT)
+        return
     if ctx.args:
         update.message.text = " ".join(ctx.args)
         await on_text(update, ctx)
@@ -261,9 +277,59 @@ async def cmd_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ── Адмін: додати користувача ──
+async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not ctx.args:
+        await update.message.reply_text("Використання: /adduser <telegram_id>")
+        return
+    try:
+        uid = int(ctx.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID")
+        return
+    _whitelist.add(uid)
+    await update.message.reply_text(f"✅ Користувача `{uid}` додано до whitelist", parse_mode="Markdown")
+    logger.info(f"Admin added user {uid} to whitelist")
+
+
+# ── Адмін: видалити користувача ──
+async def cmd_removeuser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not ctx.args:
+        await update.message.reply_text("Використання: /removeuser <telegram_id>")
+        return
+    try:
+        uid = int(ctx.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID")
+        return
+    if uid == ADMIN_ID:
+        await update.message.reply_text("❌ Не можна видалити адміна")
+        return
+    _whitelist.discard(uid)
+    await update.message.reply_text(f"✅ Користувача `{uid}` видалено з whitelist", parse_mode="Markdown")
+    logger.info(f"Admin removed user {uid} from whitelist")
+
+
+# ── Адмін: список користувачів ──
+async def cmd_listusers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    ids = sorted(_whitelist)
+    msg = f"👥 *Whitelist ({len(ids)}):*\n" + "\n".join(f"• `{i}`" for i in ids)
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+    if not is_allowed(q.from_user.id):
+        await q.edit_message_text(BLOCKED_TEXT)
+        return
+
     d = data()
     cmd = q.data
 
@@ -298,11 +364,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_user.id):
+        await update.message.reply_text(BLOCKED_TEXT)
+        return
+
     raw = update.message.text.strip()
-
-    # ── Перевіряємо чи є метраж у запиті ──
     query, meters = parse_calc_query(raw)
-
     q_lower = query.lower()
     q_norm = normalize(query)
 
@@ -324,7 +391,6 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     seen.add(key)
                     results.append((supplier, row))
 
-    # ── Режим калькулятора ──
     if meters is not None:
         if not results:
             await update.message.reply_text(
@@ -334,7 +400,6 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=build_main_keyboard(d)
             )
             return
-
         msg = build_calc_message(query, meters, results)
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔍 Новий пошук", callback_data="search"),
@@ -343,7 +408,6 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=kb)
         return
 
-    # ── Звичайний пошук ──
     if not results:
         await update.message.reply_text(
             f"❌ По запиту *{query}* нічого не знайдено\n\n"
@@ -355,7 +419,6 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     shown = results[:15]
     msg = f"🔍 Знайдено *{len(results)}* по «{query}»:\n\n"
-
     for supplier, row in shown:
         tag = get_tag(row)
         sku = str(row.get('sku') or row.get('name') or '?').strip()
@@ -363,7 +426,6 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         extra = get_extra(row)
         extra_str = f" · _{extra}_" if extra else ""
         msg += f"{tag} [{supplier}] `{sku}` — {price_str}{extra_str}\n"
-
     if len(results) > 15:
         msg += f"\n_...ще {len(results)-15}. Уточніть запит._"
 
@@ -391,9 +453,12 @@ def main():
         logger.warning(f"Could not preload data: {e}")
 
     app = Application.builder().token(token).build()
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("reload", cmd_reload))
-    app.add_handler(CommandHandler("search", cmd_search))
+    app.add_handler(CommandHandler("start",      cmd_start))
+    app.add_handler(CommandHandler("reload",     cmd_reload))
+    app.add_handler(CommandHandler("search",     cmd_search))
+    app.add_handler(CommandHandler("adduser",    cmd_adduser))
+    app.add_handler(CommandHandler("removeuser", cmd_removeuser))
+    app.add_handler(CommandHandler("listusers",  cmd_listusers))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 

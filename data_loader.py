@@ -22,7 +22,7 @@ COLS = [
     'currency', 'unit', 'in_stock', 'collection', 'contacts'
 ]
 
-UAH_RATE = 41
+UAH_RATE = 45
 
 
 def _load_workbook_bytes(data: bytes):
@@ -123,7 +123,7 @@ def fmt_price(row: dict) -> str:
         return str(main)
 
     if currency.upper() in ('USD', 'У.Е.', 'U.E.', '$'):
-        uah = round(main_f * UAH_RATE)
+        uah = round(main_f * UAH_RATE * 2)
         val = int(main_f) if main_f == int(main_f) else main_f
         return f"*{val}$* · ~{uah}грн"
     else:
