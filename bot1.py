@@ -160,9 +160,9 @@ SUPPLIER_EMOJI = {
     "CHANAN":"🌸","BR BRooKS":"🔵","CASARI":"🎭","Artplay":"🎨",
     "BY KAAN":"🇹🇷","DIZZARIO":"💫","PRONTO":"🚀","NEVALYA":"🌟",
     "МД СИМЬЕ":"🏷️","МІРТЕКС":"🧵","INSAIT":"💡","ПРАЙС 01.10.2025":"📋",
-    "ПіК":"📌","DECORAL":"🎀","MEGARA":"🏺","UMUT":"🌙",
+    "ПіК":"📌","DECORAL":"🎀","MEGARA":"🏺","Anka":"🌙",
     "UMUT (SPERANTA)":"🌙","HAS BOR":"🏗️","NOPE":"🔷","MEVLANA":"🕌",
-    "ELIT HOME":"🏅","SAM-TEX RED 3":"🔴",
+    "ELIT HOME":"🏅","SAM-TEX HOME":"🔴",
 }
 DEFAULT_EMOJI = "🧵"
 
